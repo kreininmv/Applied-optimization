@@ -6,53 +6,28 @@ from sklearn.metrics import accuracy_score
 class MyLogisticRegression:
     def __init__(self, fit_intercept=True):
         self.fit_intercept = fit_intercept
-    
-    def __function(self, X, Y, w, n):
-        sum = 0
-        for i in range(len(Y)):            
-            sum = sum + 1/n * np.log(1 - np.exp(-Y[i] * X[i, :] @ w)) 
-        
-        return sum
-
-    def __grad_function(self, X, Y, w, n):
-        sum = np.zeros(w.shape)
-        
-        for i in range(len(Y)):            
-            sum = sum  - 1/n * Y[i] * X[i, :] /(1 + np.exp(Y[i] * w * X[i, :]))
-
-        return sum
-        
-    def __grad_function_l2(self, X, Y, w, n):
-        return self.__grad_function(X, Y, w, n) + 2 * self.alpha * w
-
-    def fit(self, X, y, eps = 5*10e-3, iter = 10 ** (6-2), l2 = False, step=1000, alpha = 1):
+        return
+ 
+    def fit(self, X, y, eps = 5*10e-3, iter = 10 ** (6-3), l2 = False, step=1000, alpha = 1):
         """
         Функция подбора параметров линейной модели для квадратичной функции потерь.
 
         Input: 
         - X     : матрица объектов
         - y     : вектор ответов
-
+        - eps   : величина ошибки, до которой будем сходится
+        - iter  : количество шагов, которое сделает алгоритм. Кол-во итераций = iter * step
+        - l2    : добавлять или нет L2 регуляризацию
+        - step  : количество итераций, которое работает градиентный спуск перед тем, как записать ошибку
+        - alpha : гиперпараметр L2 регуляризации
         Returns: none.
         """
-        
-        n, k = X.shape
-        X_train = X
 
         # Добавляем ещё столбец для константы
-        if self.fit_intercept:
-            X_train = np.hstack((X, np.ones((n, 1))))
-            w0 = np.random.rand(k+1)
-        else:
-            w0 = np.random.rand(k)
-        
-        lr_func = lambda X, y, w, n: 5*10e-3
-        grad_function = self.__grad_function
-
-        if l2 == True:
-            grad_function = self.__grad_function_l2
-        
-        error_criterion = lambda X, y, w, n: np.linalg.norm(grad_function(X, y, w, n), 2)
+        X_train, w0 = self.__add_constant_column(X)
+        lr_func = lambda X, y, w: 5*10e-3
+        grad_function = self.__choose_gradient(l2, alpha)
+        error_criterion = lambda X, y, w: np.linalg.norm(grad_function(X, y, w), 2)
         
         self.alpha = alpha
         self._errors = []
@@ -62,8 +37,8 @@ class MyLogisticRegression:
         for i in range(int(iter / step)):
             self._w = self.__gradient_descent(self.__function, grad_function, self._w,
                                             lr_func, step, error_criterion, 
-                                            X_train, y)
-            error = error_criterion(X_train, y, self._w, n)
+                                            X_train, y, eps)
+            error = error_criterion(X_train, y, self._w)
 
             self._errors.append(error) 
             
@@ -73,12 +48,6 @@ class MyLogisticRegression:
                 break
         
         return self
-    
-    def get_errors(self):
-        return self._errors
-
-    def get_accuracy(self):
-        return self._accuracies
 
     def predict(self, X):
         """
@@ -103,6 +72,143 @@ class MyLogisticRegression:
 
         return y_pred
 
+    def __gradient_descent(self, f, grad_f, w0, 
+                         lr, iter, error_criterion, 
+                         X, y, eps):
+        """
+        Это градиентный спуск.
+        Он получает на вход целевую функцию, функцию градиента целевой функции, 
+        начальную точку, функцию learning rate, количество итераций и 
+        функцию подсчета ошибки. И применяетметод градиентного спуска.
+
+        Inputs:
+        - f                 : целевая функция, минимум которой мы хотим найти.
+        - grad_f            : функция градиента целевой функции.
+        - x0                : начальная точка.
+        - lr                : функция learning rate.
+        - iter              : количество итераций.
+        - error_criterion   : функция подсчета ошибки
+        - X_train           : множество объектов (матрица фичей)
+        - y                 : вектор ответов
+        - eps               : величина ошибки, до которой будем сходится
+
+        Returns:
+        Наилучшую минимальную точку, которую удалось найти.
+        """
+    
+        w = w0
+        for k in range(iter):
+            prev_w = w
+            
+            w = w - lr(X, y, w) * grad_f(X, y, w)
+            
+            if (k % 30 == 0):
+                error = error_criterion(X, y, w)
+
+            if (error < eps):
+                return w
+        return w
+
+    def __heavy_ball(self, f, grad_f, w0, 
+                         lr, iter, error_criterion, 
+                         X, y, eps, alpha, beta):
+        """
+        Это градиентный спуск.
+        Он получает на вход целевую функцию, функцию градиента целевой функции, 
+        начальную точку, функцию learning rate, количество итераций и 
+        функцию подсчета ошибки. И применяетметод градиентного спуска.
+
+        Inputs:
+        - f                 : целевая функция, минимум которой мы хотим найти.
+        - grad_f            : функция градиента целевой функции.
+        - x0                : начальная точка.
+        - lr                : функция learning rate.
+        - iter              : количество итераций.
+        - error_criterion   : функция подсчета ошибки
+        - X_train           : множество объектов (матрица фичей)
+        - y                 : вектор ответов
+        - eps               : величина ошибки
+        - alpha             : гиперпараметр в методе тяжелого шарика (отвечает за вес градиент)
+        - beta              : гиперпараметр в методе тяжелого шарика (отвечает за вес предыдущей скорости)
+
+        Returns:
+        Наилучшую минимальную точку, которую удалось найти.
+        """
+    
+        w = w0
+        v = - alpha * grad_f(w)
+        for k in range(iter):
+            v = beta * v - alpha * grad_f(w)
+            w = w + v
+            
+            if (k % 30 == 0):
+                error = error_criterion(X, y, w)
+
+            if (error < eps):
+                return w
+        return w
+    
+    def __function(self, X, Y, w):
+        """
+        Целевая фукнция, которую минимизирует наша логистическая регрессия.
+
+        Input: 
+        - X   : матрица фичей
+        - y   : вектор ответов
+        - w   : параметры модели
+        """
+        sum = 0
+        n = X.shape[0]
+
+        for i in range(len(Y)):     
+            sum = sum + 1/n * np.log(1 - np.exp(-Y[i] * X[i, :] @ w)) 
+        
+        return sum
+
+    def __grad_function(self, X, Y, w):
+        sum = np.zeros(w.shape)
+        n = X.shape[0]
+        for i in range(len(Y)):            
+            sum = sum  - 1/n * Y[i] * X[i, :] /(1 + np.exp(Y[i] * w * X[i, :]))
+
+        return sum
+
+    def __add_constant_column(self, X):
+        n, k = X.shape
+        if self.fit_intercept:
+            X_train = np.hstack((X, np.ones((n, 1))))
+            w0 = np.random.rand(k+1)
+        else:
+            X_train = X
+            w0 = np.random.rand(k)
+        
+        return X_train, w0
+    
+    def __choose_gradient(self, l2, alpha):
+        if l2:
+            grad_function = lambda X, Y, w: self.__grad_function(X, Y, w) + 2 * alpha * w
+        else:
+            grad_function = lambda X, Y, w: self.__grad_function(X, Y, w)
+        return grad_function
+
+    def get_errors(self):
+        """
+        Функция получения ошибок, подсчитываемой при вызове fit.
+
+        Input: None
+        Return: лист ошибок
+        """
+        return self._errors
+
+    def get_accuracy(self):
+        """
+        Функция получения метрики accuracy_score, подсчитываемой при вызове fit.
+        
+        Input: None
+        Return: лист accuracy_score.
+        """
+        return self._accuracies
+
     def get_weights(self):
         """
         Функция получения весов нашей линейной модели.
@@ -112,81 +218,7 @@ class MyLogisticRegression:
         """
         return self._w
 
-    def __gradient_descent(self, f, grad_f, w0, 
-                         lr, iter, error_criterion, 
-                         X, y):
-        """
-        Это градиентный спуск.
-        Он получает на вход целевую функцию, функцию градиента целевой функции, 
-        начальную точку, функцию learning rate, количество итераций и 
-        функцию подсчета ошибки. И применяетметод градиентного спуска.
 
-        Inputs:
-        - f                 : целевая функция, минимум которой мы хотим найти.
-        - grad_f            : функция градиента целевой функции.
-        - x0                : начальная точка.
-        - lr                : функция learning rate.
-        - iter              : количество итераций.
-        - error_criterion   : функция подсчета ошибки
-        - X_train           : множество объектов (матрица фичей)
-        - y                 : вектор ответов
-
-        Returns:
-        Наилучшую минимальную точку, которую удалось найти.
-        """
-    
-        w = w0
-        eps = 5*10e-5
-        n, k = X.shape 
-        for k in range(iter):
-            prev_w = w
-            
-            w = w - lr(X, y, w, n) * grad_f(X, y, w, n)
-            
-            if (k % 30 == 0):
-                error = error_criterion(X, y, w, n)
-
-            if (error < eps):
-                return w
-        return w
-
-    def __heavy_ball(self, f, grad_f, w0, 
-                         lr, iter, error_criterion, 
-                         X, y, alpha):
-        """
-        Это градиентный спуск.
-        Он получает на вход целевую функцию, функцию градиента целевой функции, 
-        начальную точку, функцию learning rate, количество итераций и 
-        функцию подсчета ошибки. И применяетметод градиентного спуска.
-
-        Inputs:
-        - f                 : целевая функция, минимум которой мы хотим найти.
-        - grad_f            : функция градиента целевой функции.
-        - x0                : начальная точка.
-        - lr                : функция learning rate.
-        - iter              : количество итераций.
-        - error_criterion   : функция подсчета ошибки
-        - X_train           : множество объектов (матрица фичей)
-        - y                 : вектор ответов
-
-        Returns:
-        Наилучшую минимальную точку, которую удалось найти.
-        """
-    
-        w = w0
-        eps = 5*10e-5
-        n, k = X.shape 
-        for k in range(iter):
-            prev_w = w
-            
-            w = w - lr(X, y, w, n) * grad_f(X, y, w, n)
-            
-            if (k % 30 == 0):
-                error = error_criterion(X, y, w, n)
-
-            if (error < eps):
-                return w
-        return w
 class MyLinearRegression:
     def __init__(self, fit_intercept=True):
         self.fit_intercept = fit_intercept
@@ -197,8 +229,6 @@ class MyLinearRegression:
     def __grad_function(self, X, y, w, n):
         return 1/n * 2 * X.T @ (w @ X.T - y).T 
         
-    
-
     def fit(self, X, y, eps = 5*10e-3, iter = 10 ** (6-2), l2 = False, step=1000):
         """
         Функция подбора параметров линейной модели для квадратичной функции потерь.
@@ -390,3 +420,20 @@ class MyLinearRegression:
                 return w
         return w
 
+    def get_errors(self):
+        """
+        Функция получения ошибок, подсчитываемой при вызове fit.
+
+        Input: None
+        Return: лист ошибок
+        """
+        return self._errors
+
+    def get_accuracy(self):
+        """
+        Функция получения метрики accuracy_score, подсчитываемой при вызове fit.
+        
+        Input: None
+        Return: лист accuracy_score.
+        """
+        return self._accuracies
