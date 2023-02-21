@@ -217,7 +217,10 @@ class MyLogisticRegression:
         Returns: Параметры модели.
         """
         return self._w
-
+    def choose_opt_method(self, heavy):
+        if heavy == True:
+            return self.__heavy_ball
+        return self.__gradient_descent
 
 class MyLinearRegression:
     def __init__(self, fit_intercept=True):
@@ -227,7 +230,10 @@ class MyLinearRegression:
         return 1/n * la.norm(w @ X.T - y, 2) ** 2
 
     def __grad_function(self, X, y, w, n):
-        return 1/n * 2 * X.T @ (w @ X.T - y).T 
+        A = X.T @ X
+        b = X.T @ y.T
+        return 2 * 1/n * (A @ w.T - b)
+        #return 1/n * 2 * X.T @ (w @ X.T - y).T 
         
     def fit(self, X, y, eps = 5*10e-3, iter = 10 ** (6-2), l2 = False, step=1000):
         """
