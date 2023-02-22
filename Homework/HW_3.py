@@ -8,7 +8,8 @@ class MyLogisticRegression:
         self.fit_intercept = fit_intercept
         return
  
-    def fit(self, X, y, eps = 5*10e-3, iter = 10 ** (6-3), l2 = False, step=1000, alpha = 1):
+    def fit(self, X, y, eps = 5*10e-3, iter = 10 ** (6-3), l2 = False, step=1000, 
+        l2_coef = 1, heavy_ball = False, nesterov_moment = False, alpha = 0.9, beta = 0.1, ):
         """
         Функция подбора параметров линейной модели для квадратичной функции потерь.
 
@@ -25,23 +26,37 @@ class MyLogisticRegression:
 
         # Добавляем ещё столбец для константы
         X_train, w0 = self.__add_constant_column(X)
-        lr_func = lambda X, y, w: 5*10e-3
-        grad_function = self.__choose_gradient(l2, alpha)
-        error_criterion = lambda X, y, w: np.linalg.norm(grad_function(X, y, w), 2)
         
-        self.alpha = alpha
-        self._errors = []
-        self._accuracies = []
-        self._w = w0
+        n, d = X_train.shape
+        # Находим константу липшица для подбора learning rate
+        hessian = np.zeros((d, d))
+        for x in X_train[:]:
+            hessian = hessian + 1/(4*n)  * np.outer(x, x)
+        L = np.linalg.norm(hessian, 2)
 
+        lr_func = lambda X, y, w: 1.0 / L
+        grad_function = self.__choose_gradient(l2, alpha)
+        #error_criterion = lambda X, y, w, w_prev: np.linalg.norm(grad_function(X, y, w), 2)
+        error_criterion = lambda X, y, w, w_prev: np.linalg.norm(w - w_prev, 2)
+        
+        #optimize_function = lambda f, grad_f, w, lr_func, step, er_crit, X, y, eps: 
+        opt = self.choose_opt_method(heavy_ball, nesterov_moment)
+
+        self._alpha      = alpha
+        self._beta       = beta
+        self._errors     = []
+        self._accuracies = []
+        self._w          = w0
+        self._l2_coef    = l2_coef
+        w_prev = w0
         for i in range(int(iter / step)):
-            self._w = self.__gradient_descent(self.__function, grad_function, self._w,
+            self._w = opt(self.__function, grad_function, self._w,
                                             lr_func, step, error_criterion, 
                                             X_train, y, eps)
-            error = error_criterion(X_train, y, self._w)
-
-            self._errors.append(error) 
+            error = error_criterion(X_train, y, self._w, w_prev)
             
+            w_prev = self._w
+            self._errors.append(error) 
             self._accuracies.append(accuracy_score(y, self.predict(X)))
             
             if (error < eps):
@@ -56,13 +71,8 @@ class MyLogisticRegression:
         - X : объекты, по которым будем предксазывать
 
         Returns: предсказания на основе весов, ранее обученной линейной модели.
-        """
-        n, k = X.shape
-        X_train = X
-        if self.fit_intercept:
-            X_train = np.hstack((X, np.ones((n, 1))))
-
-        y_pred = 1/(1 + np.exp(-self._w @ X_train.T))
+        """        
+        y_pred = self.prob(X)
         
         for i in range(len(y_pred)):
             if (y_pred[i] >= 0.5):
@@ -70,7 +80,16 @@ class MyLogisticRegression:
             else:
                 y_pred[i] = -1
 
+        #y_pred = np.sign(self._w @ X_train.T)
+        
         return y_pred
+    
+    def prob(self, X):
+        X_train, c = self.__add_constant_column(X)
+        
+        y_prob = 1/(1 + np.exp(-self._w @ X_train.T))
+    
+        return y_prob
 
     def __gradient_descent(self, f, grad_f, w0, 
                          lr, iter, error_criterion, 
@@ -97,23 +116,22 @@ class MyLogisticRegression:
         """
     
         w = w0
+        prev_w = w
         for k in range(iter):
-            prev_w = w
-            
             w = w - lr(X, y, w) * grad_f(X, y, w)
             
             if (k % 30 == 0):
-                error = error_criterion(X, y, w)
-
+                error = error_criterion(X, y, w, prev_w)
+            prev_w = w
             if (error < eps):
                 return w
         return w
 
-    def __heavy_ball(self, f, grad_f, w0, 
+    def __nesterov_moment(self, f, grad_f, w0, 
                          lr, iter, error_criterion, 
-                         X, y, eps, alpha, beta):
+                         X, y, eps):
         """
-        Это градиентный спуск.
+        Это метод Нестерова.
         Он получает на вход целевую функцию, функцию градиента целевой функции, 
         начальную точку, функцию learning rate, количество итераций и 
         функцию подсчета ошибки. И применяетметод градиентного спуска.
@@ -128,22 +146,60 @@ class MyLogisticRegression:
         - X_train           : множество объектов (матрица фичей)
         - y                 : вектор ответов
         - eps               : величина ошибки
-        - alpha             : гиперпараметр в методе тяжелого шарика (отвечает за вес градиент)
-        - beta              : гиперпараметр в методе тяжелого шарика (отвечает за вес предыдущей скорости)
 
         Returns:
         Наилучшую минимальную точку, которую удалось найти.
         """
     
         w = w0
-        v = - alpha * grad_f(w)
+        prev_w = w
+        v = 0
         for k in range(iter):
-            v = beta * v - alpha * grad_f(w)
+            v = self._beta * v - self._alpha * grad_f(X, y, w + self._beta * v)
+            w = w + v
+
+            if (k % 30 == 0):
+                error = error_criterion(X, y, w, prev_w)
+            prev_w = w
+            if (error < eps):
+                return w
+        return w
+    
+
+    def __heavy_ball(self, f, grad_f, w0, 
+                         lr, iter, error_criterion, 
+                         X, y, eps):
+        """
+        Это метод тяжелого шарика.
+        Он получает на вход целевую функцию, функцию градиента целевой функции, 
+        начальную точку, функцию learning rate, количество итераций и 
+        функцию подсчета ошибки. И применяетметод градиентного спуска.
+
+        Inputs:
+        - f                 : целевая функция, минимум которой мы хотим найти.
+        - grad_f            : функция градиента целевой функции.
+        - x0                : начальная точка.
+        - lr                : функция learning rate.
+        - iter              : количество итераций.
+        - error_criterion   : функция подсчета ошибки
+        - X_train           : множество объектов (матрица фичей)
+        - y                 : вектор ответов
+        - eps               : величина ошибки
+
+        Returns:
+        Наилучшую минимальную точку, которую удалось найти.
+        """
+    
+        w = w0
+        prev_w = w
+        v = 0
+        for k in range(iter):
+            v = self._beta * v - self._alpha * grad_f(X, y, w)
             w = w + v
             
             if (k % 30 == 0):
-                error = error_criterion(X, y, w)
-
+                error = error_criterion(X, y, w, prev_w)
+            prev_w = w
             if (error < eps):
                 return w
         return w
@@ -186,11 +242,11 @@ class MyLogisticRegression:
     
     def __choose_gradient(self, l2, alpha):
         if l2:
-            grad_function = lambda X, Y, w: self.__grad_function(X, Y, w) + 2 * alpha * w
+            grad_function = lambda X, Y, w: self.__grad_function(X, Y, w) + 2 * self._l2_coef * w
         else:
             grad_function = lambda X, Y, w: self.__grad_function(X, Y, w)
         return grad_function
-
+    
     def get_errors(self):
         """
         Функция получения ошибок, подсчитываемой при вызове fit.
@@ -217,9 +273,12 @@ class MyLogisticRegression:
         Returns: Параметры модели.
         """
         return self._w
-    def choose_opt_method(self, heavy):
+    def choose_opt_method(self, heavy, nesterov):
         if heavy == True:
             return self.__heavy_ball
+        if nesterov == True:
+            return self.__nesterov_moment
+
         return self.__gradient_descent
 
 class MyLinearRegression:
@@ -230,10 +289,7 @@ class MyLinearRegression:
         return 1/n * la.norm(w @ X.T - y, 2) ** 2
 
     def __grad_function(self, X, y, w, n):
-        A = X.T @ X
-        b = X.T @ y.T
-        return 2 * 1/n * (A @ w.T - b)
-        #return 1/n * 2 * X.T @ (w @ X.T - y).T 
+        return 1/n * 2 * X.T @ (w @ X.T - y).T 
         
     def fit(self, X, y, eps = 5*10e-3, iter = 10 ** (6-2), l2 = False, step=1000):
         """
@@ -261,18 +317,21 @@ class MyLinearRegression:
         wb, vb = np.linalg.eigh(hessian)
         
         lr_func = lambda X, y, w, n: 1/wb[-1]
-        
-        error_criterion = lambda X, y, w, n: np.linalg.norm(self.__grad_function(X, y, w, n), 2)
+        function = lambda w: 1/n * la.norm(w @ X_train.T - y, 2) ** 2
+        A = X_train.T @ X_train
+        b = X_train.T @ y
+        grad_function = lambda w: 2 / n * (A @ w.T - b)
+        error_criterion = lambda w: np.linalg.norm(grad_function(w), 2)
 
         self._errors = []
         self._accuracies = []
         self._w = w0
 
         for it in range(int(iter / step)):
-            self._w = self.__gradient_descent(self.__function, self.__grad_function, self._w,
+            self._w = self.__gradient_descent(function, grad_function, self._w,
                                             lr_func,  step, error_criterion, X_train, y)
             
-            error = error_criterion(X_train, y, self._w, n)
+            error = error_criterion(self._w)
             self._errors.append(error)
             
             self._accuracies.append(accuracy_score(y, self.predict(X)))
@@ -348,8 +407,6 @@ class MyLinearRegression:
 
         y = np.zeros(d - 1)
         y[x0 <= -lambd] = x0[x0 <= -lambd] + lambd
-        #
-        #y[np.abs(x) < lambd] = x[np.abs(x) < lambd] * 0
         y[x0 >= lambd] = x0[x0 >= lambd] - lambd
 
         return y
@@ -382,9 +439,9 @@ class MyLinearRegression:
         n, k = X.shape 
         for k in range(iter):
             prev_w = w
-            w = w - lr(X, y, w, n) * grad_f(X, y, w, n)
+            w = w - lr(X, y, w, n) * grad_f(w)
             
-            error = error_criterion(X, y, w, n)
+            error = error_criterion(w)
 
             if (error < eps):
                 return w
