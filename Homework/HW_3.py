@@ -2,6 +2,7 @@
 import numpy as np
 import scipy.linalg as la
 from sklearn.metrics import accuracy_score
+from datetime import datetime as dt
 
 class MyLogisticRegression:
     def __init__(self, fit_intercept=True):
@@ -9,7 +10,7 @@ class MyLogisticRegression:
         return
  
     def fit(self, X, y, eps = 5*10e-3, iter = 10 ** (6-3), l2 = False, step=1000, 
-        l2_coef = 1, heavy_ball = False, nesterov_moment = False, alpha = 0.9, beta = 0.1, ):
+        l2_coef = 1, heavy_ball = False, nesterov_moment = False, beta = 0.1, dynamic_beta=0):
         """
         Функция подбора параметров линейной модели для квадратичной функции потерь.
 
@@ -27,37 +28,122 @@ class MyLogisticRegression:
         # Добавляем ещё столбец для константы
         X_train, w0 = self.__add_constant_column(X)
         
-        n, d = X_train.shape
         # Находим константу липшица для подбора learning rate
-        hessian = np.zeros((d, d))
+        hessian = np.zeros((X_train.shape[1], X_train.shape[1]))
+        
         for x in X_train[:]:
-            hessian = hessian + 1/(4*n)  * np.outer(x, x)
+            hessian = hessian + 1/(4*X_train.shape[0])  * np.outer(x, x)
         L = np.linalg.norm(hessian, 2)
 
-        lr_func = lambda X, y, w: 1.0 / L
-        grad_function = self.__choose_gradient(l2, alpha)
-        #error_criterion = lambda X, y, w, w_prev: np.linalg.norm(grad_function(X, y, w), 2)
-        error_criterion = lambda X, y, w, w_prev: np.linalg.norm(w - w_prev, 2)
-        
-        #optimize_function = lambda f, grad_f, w, lr_func, step, er_crit, X, y, eps: 
+        lr_func = lambda X, y, w, k: 1.0/ L
+    
+        grad_function = self.__choose_gradient(l2)
+        error_criterion = lambda X, y, w, w_prev: np.linalg.norm(grad_function(X, y, w), 2)
+        #error_criterion = lambda X, y, w, w_prev: np.linalg.norm(w - w_prev, 2)
+        to_seconds = lambda s: t.microseconds * 1e-6 + t.seconds
         opt = self.choose_opt_method(heavy_ball, nesterov_moment)
 
-        self._alpha      = alpha
+
+
+        self._iter       = iter
+        self._step       = step
         self._beta       = beta
         self._errors     = []
         self._accuracies = []
         self._w          = w0
         self._l2_coef    = l2_coef
+        self._time       = []
+
+        if (dynamic_beta == 1):
+            self._f_beta = self.beta_1
+        elif (dynamic_beta == 2):
+            self._f_beta = self.beta_2
+        elif (dynamic_beta == 3):
+            self._f_beta = self.beta_3
+        else:
+            self._f_beta = lambda k: self._beta
+
         w_prev = w0
-        for i in range(int(iter / step)):
+        #time.microseconds * 1e-6 + time.seconds
+        time_start = dt.now()
+        for i in range(int(iter)):
+            self._i = i
             self._w = opt(self.__function, grad_function, self._w,
                                             lr_func, step, error_criterion, 
                                             X_train, y, eps)
             error = error_criterion(X_train, y, self._w, w_prev)
             
             w_prev = self._w
+            self._time.append(dt.now() - time_start)
             self._errors.append(error) 
             self._accuracies.append(accuracy_score(y, self.predict(X)))
+            
+            #print("%d: %f" %(i, error))
+            
+            if (error < eps):
+                break
+        
+        return self
+
+    def fit_test(self, X, y, X_1, y_1, eps = 5*10e-3, iter = 10 ** (6-3), l2 = False, step=1000, 
+        l2_coef = 1, heavy_ball = False, nesterov_moment = False, beta = 0.1, dynamic_beta=0):
+
+        # Добавляем ещё столбец для константы
+        X_train, w0 = self.__add_constant_column(X)
+        X_test, _ = self.__add_constant_column(X_1)
+        y_test = y_1
+        
+        # Находим константу липшица для подбора learning rate
+        hessian = np.zeros((X_train.shape[1], X_train.shape[1]))
+        
+        for x in X_train[:]:
+            hessian = hessian + 1/(4*X_train.shape[0])  * np.outer(x, x)
+        L = np.linalg.norm(hessian, 2)
+
+        lr_func = lambda X, y, w: 1.0/ L
+    
+        grad_function = self.__choose_gradient(l2)
+        to_seconds = lambda t: t.microseconds * 1e-6 + t.seconds
+        error_criterion = lambda X, y, w, w_prev: np.linalg.norm(grad_function(X, y, w), 2)
+        #error_criterion = lambda X, y, w, w_prev: np.linalg.norm(w - w_prev, 2)
+        
+        opt = self.choose_opt_method(heavy_ball, nesterov_moment)
+        self._iter       = iter
+        self._step       = step
+        self._beta       = beta
+        self._errors     = []
+        self._accuracies = []
+        self._w          = w0
+        self._l2_coef    = l2_coef
+        self._time       = []
+        
+        if (dynamic_beta == 1):
+            self._f_beta = self.beta_1
+        elif (dynamic_beta == 2):
+            self._f_beta = self.beta_2
+        elif (dynamic_beta == 3):
+            self._f_beta = self.beta_3
+        else:
+            self._f_beta = lambda k: self._beta
+        
+        w_prev = w0
+        time_start = dt.now()
+        for i in range(int(iter)):
+            self._i = i
+            #print(opt)-#
+            self._w = opt(self.__function, grad_function, self._w,
+                                            lr_func, step, error_criterion, 
+                                            X_train, y, eps)
+
+            
+            error = error_criterion(X_train, y, self._w, w_prev)
+            
+            w_prev = self._w
+            self._time.append(to_seconds(dt.now() - time_start))
+            self._errors.append(error) 
+            self._accuracies.append(accuracy_score(y, self.predict(X)))
+            
+            #print("%d: %f" %(i, error))
             
             if (error < eps):
                 break
@@ -81,9 +167,18 @@ class MyLogisticRegression:
                 y_pred[i] = -1
 
         #y_pred = np.sign(self._w @ X_train.T)
-        
+
         return y_pred
     
+
+    def calc_accuracy(self, X, y):
+        count = 0
+        X_train, c = self.__add_constant_column(X)
+        for i in range(y.size):
+            if X_train[i].dot(self._w) * y[i] > 0:
+                count += 1
+        return count / y.size
+
     def prob(self, X):
         X_train, c = self.__add_constant_column(X)
         
@@ -122,9 +217,11 @@ class MyLogisticRegression:
             
             if (k % 30 == 0):
                 error = error_criterion(X, y, w, prev_w)
+                if (error < eps):
+                    return w
+            
             prev_w = w
-            if (error < eps):
-                return w
+            
         return w
 
     def __nesterov_moment(self, f, grad_f, w0, 
@@ -153,16 +250,22 @@ class MyLogisticRegression:
     
         w = w0
         prev_w = w
-        v = 0
+        v = grad_f(X, y, w)
+        
         for k in range(iter):
-            v = self._beta * v - self._alpha * grad_f(X, y, w + self._beta * v)
-            w = w + v
-
+            beta = self._f_beta(self._i * iter + k)
+            v = beta * v + (1 - beta) * grad_f(X, y, w - lr(X, y, w) * beta * v)
+        
+            w = w - lr(X, y, w) * v
+            
             if (k % 30 == 0):
                 error = error_criterion(X, y, w, prev_w)
+                
+                if (error < eps):
+                    return w
+            
             prev_w = w
-            if (error < eps):
-                return w
+            
         return w
     
 
@@ -192,10 +295,11 @@ class MyLogisticRegression:
     
         w = w0
         prev_w = w
-        v = 0
+        v = grad_f(X, y, w)
         for k in range(iter):
-            v = self._beta * v - self._alpha * grad_f(X, y, w)
-            w = w + v
+            v = self._beta * v + (1 - self._beta) * grad_f(X, y, w)
+            
+            w = w - lr(X, y, w) * v
             
             if (k % 30 == 0):
                 error = error_criterion(X, y, w, prev_w)
@@ -225,7 +329,7 @@ class MyLogisticRegression:
         sum = np.zeros(w.shape)
         n = X.shape[0]
         for i in range(len(Y)):            
-            sum = sum  - 1/n * Y[i] * X[i, :] /(1 + np.exp(Y[i] * w * X[i, :]))
+            sum = sum  - 1/n * Y[i] * X[i] /(1 + np.exp(Y[i] * w * X[i]))
 
         return sum
 
@@ -240,7 +344,7 @@ class MyLogisticRegression:
         
         return X_train, w0
     
-    def __choose_gradient(self, l2, alpha):
+    def __choose_gradient(self, l2):
         if l2:
             grad_function = lambda X, Y, w: self.__grad_function(X, Y, w) + 2 * self._l2_coef * w
         else:
@@ -248,31 +352,17 @@ class MyLogisticRegression:
         return grad_function
     
     def get_errors(self):
-        """
-        Функция получения ошибок, подсчитываемой при вызове fit.
-
-        Input: None
-        Return: лист ошибок
-        """
         return self._errors
 
     def get_accuracy(self):
-        """
-        Функция получения метрики accuracy_score, подсчитываемой при вызове fit.
-        
-        Input: None
-        Return: лист accuracy_score.
-        """
         return self._accuracies
 
     def get_weights(self):
-        """
-        Функция получения весов нашей линейной модели.
-
-        Input: None.
-        Returns: Параметры модели.
-        """
         return self._w
+
+    def get_time(self):
+        return self._time
+
     def choose_opt_method(self, heavy, nesterov):
         if heavy == True:
             return self.__heavy_ball
@@ -280,7 +370,16 @@ class MyLogisticRegression:
             return self.__nesterov_moment
 
         return self.__gradient_descent
+    
+    def beta_1(self, k):
+        return k/(k+1)
 
+    def beta_2(self, k):
+        return k/(k+2)
+
+    def beta_3(self, k):
+        return k/(k+3)    
+    
 class MyLinearRegression:
     def __init__(self, fit_intercept=True):
         self.fit_intercept = fit_intercept
