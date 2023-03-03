@@ -148,7 +148,7 @@ class MyMirrorRegression:
     def __choose_opt_method(self, wolf):
         if wolf:
             return self.__gradient_descent_wolf
-        return __gradient_descent_mirror
+        return self.__gradient_descent_mirror
 
     def get_errors(self):
         return self._errors
