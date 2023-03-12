@@ -406,6 +406,7 @@ class MyLogisticRegression:
                 all_w.append(all_w[-1] - lr(X, y, w) * v_t)
             
             w_prew = all_w[np.random.randint(0, self._batch_size - 1)]
+
             if (k % 30 == 0):
                 error = error_criterion(X, y, w)
                 if (error < self._eps):
@@ -494,7 +495,7 @@ class MyLogisticRegression:
             return self.__SAGA
         if self._method == "SVRG":
             return self.__SVRG
-        if self._method == "SVRG":
+        if self._method == "SARAH":
             return self.__SARAH
     
         return self.__gradient_descent
