@@ -218,7 +218,6 @@ class MyLogisticRegression:
         L = np.linalg.norm(hessian, 2)
 
         lr_func = lambda w: 1.0/ L
-    
         grad_function = self.__choose_gradient(self._l2)
         to_seconds = lambda t: t.microseconds * 1e-6 + t.seconds
         error_criterion = lambda x, y, w: np.linalg.norm(grad_function(x, y, w), 2)
@@ -241,6 +240,11 @@ class MyLogisticRegression:
                 X_batch = X_train[j * self._batch_size: (j + 1) * self._batch_size, :]
                 y_batch = y_train[j * self._batch_size: (j + 1) * self._batch_size]
             
+                hessian = np.zeros((X_train.shape[1], X_train.shape[1]))
+        
+            for x in X_train[:]:
+                hessian = hessian + 1/(4*X_train.shape[0])  * np.outer(x, x)
+                L = np.linalg.norm(hessian, 2)
                 
                 self._w = opt(self.__function, grad_function, self._w,
                                                 lr_func, error_criterion, 
@@ -260,50 +264,9 @@ class MyLogisticRegression:
         
         return self
 
-    def predict(self, X):
-        """
-        Функция предсказания по признакам, уже натренированной модели.
-        Input: 
-        - X : объекты, по которым будем предксазывать
-
-        Returns: предсказания на основе весов, ранее обученной линейной модели.
-        """        
-        y_pred = self.prob(X)
-        y_pred[y_pred >= 0.5] = 1
-        y_pred[y_pred < 0.5] = -1
-        
-        '''
-        for i in range(len(y_pred)):
-            y_pred[y_pred >= 0.5] = 1
-            y_pred[y_pred < 0.5] = -1
-            if (y_pred[i] >= 0.5):
-                y_pred[i] = 1
-            else:
-                y_pred[i] = -1
-        '''
-        #y_pred = np.sign(self._w @ X_train.T)
-
-        return y_pred
-    
-
-    def calc_accuracy(self, X, y):
-        count = 0
-        X_train, c = self.__add_constant_column(X)
-        for i in range(y.size):
-            if X_train[i].dot(self._w) * y[i] > 0:
-                count += 1
-        return count / y.size
-
-    def prob(self, X):
-        X_train, c = self.__add_constant_column(X)
-        
-        y_prob = 1/(1 + np.exp(-X_train @ self._w))
-    
-        return y_prob
-
     def __gradient_descent(self, f, grad_f, w0, 
                          lr, iter, error_criterion, 
-                         X, y, eps):
+                         X, y):
         """
         Это градиентный спуск.
         Он получает на вход целевую функцию, функцию градиента целевой функции, 
@@ -332,13 +295,50 @@ class MyLogisticRegression:
             
             if (k % 30 == 0):
                 error = error_criterion(X, y, w, prev_w)
-                if (error < eps):
+                if (error < self._eps):
                     return w
             
             prev_w = w
             
         return w
+    
+    def __stochastic_gradient_descent(self, f, grad_f, w0, 
+                         lr, error_criterion, 
+                         X, y):
+        """
+        Это градиентный спуск.
+        Он получает на вход целевую функцию, функцию градиента целевой функции, 
+        начальную точку, функцию learning rate, количество итераций и 
+        функцию подсчета ошибки. И применяетметод градиентного спуска.
 
+        Inputs:
+        - f                 : целевая функция, минимум которой мы хотим найти.
+        - grad_f            : функция градиента целевой функции.
+        - x0                : начальная точка.
+        - lr                : функция learning rate.
+        - iter              : количество итераций.
+        - error_criterion   : функция подсчета ошибки
+        - X_train           : множество объектов (матрица фичей)
+        - y                 : вектор ответов
+        - eps               : величина ошибки, до которой будем сходится
+
+        Returns:
+        Наилучшую минимальную точку, которую удалось найти.
+        """
+    
+        w = w0
+        prev_w = w
+        for k in range(iter):
+            w = w - lr(X, y, w) * grad_f(X, y, w)
+            
+            if (k % 30 == 0):
+                error = error_criterion(X, y, w, prev_w)
+                if (error < self._eps):
+                    return w
+            
+            prev_w = w
+            
+        return w
 
     def __function(self, x, y, w):
         """
@@ -394,36 +394,43 @@ class MyLogisticRegression:
     
     def choose_opt_method(self):
         return self.__gradient_descent
+        def predict(self, X):
+        """
+        Функция предсказания по признакам, уже натренированной модели.
+        Input: 
+        - X : объекты, по которым будем предксазывать
+
+        Returns: предсказания на основе весов, ранее обученной линейной модели.
+        """        
+        y_pred = self.prob(X)
+        y_pred[y_pred >= 0.5] = 1
+        y_pred[y_pred < 0.5] = -1
+        
+        '''
+        for i in range(len(y_pred)):
+            y_pred[y_pred >= 0.5] = 1
+            y_pred[y_pred < 0.5] = -1
+            if (y_pred[i] >= 0.5):
+                y_pred[i] = 1
+            else:
+                y_pred[i] = -1
+        '''
+        #y_pred = np.sign(self._w @ X_train.T)
+
+        return y_pred
     
-    def proj(self, x0):
-        rad = self.radius
-        x = np.copy(x0)
-        d = int (x0.shape[0]) + 1
 
-        if (np.linalg.norm(x, 1) <= rad):
-            lambd = 0
-        else:
-            x = np.absolute(x)
-            x = np.append(x, 0)
-            x = np.sort(x)
+    def calc_accuracy(self, X, y):
+        count = 0
+        X_train, c = self.__add_constant_column(X)
+        for i in range(y.size):
+            if X_train[i].dot(self._w) * y[i] > 0:
+                count += 1
+        return count / y.size
 
-            x_first = np.flip(x)
-            first = np.flip(np.cumsum(x_first))
-
-            second = np.multiply( np.arange(d), x )
-
-            third = x * (-d)
-
-            forth = np.ones(d) * (-rad)
-
-            g_deriv = 2 * ( first + second + third + forth )
-            k  = np.min(np.where(g_deriv[1:] * g_deriv[:-1] <= 0))
-
-            lambd = (first[k] - x[k] - rad) / (d - 1 - k) 
-
-        y = np.zeros(d - 1)
-        y[x0 <= -lambd] = x0[x0 <= -lambd] + lambd
-        y[x0 >= lambd] = x0[x0 >= lambd] - lambd
-
-        return y
-
+    def prob(self, X):
+        X_train, c = self.__add_constant_column(X)
+        
+        y_prob = 1/(1 + np.exp(-X_train @ self._w))
+    
+        return y_prob
