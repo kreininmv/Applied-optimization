@@ -189,12 +189,12 @@ class MyLinearRegression:
 
 
 
-#########################################
-#         My logistic regression        #
-#########################################
+#######################################################################################################
+################################         My logistic regression        ################################
+#######################################################################################################
 class MyLogisticRegression:
     def __init__(self, fit_intercept=False,  iter = 10 ** (6-3), l2 = False, step=1000, 
-        l2_coef = 1, name='default', eps = 5*10e-3, batch_size = 10):
+        l2_coef = 1, name='default', eps = 5*10e-3, batch_size = 10, method = "GD"):
         self.fit_intercept  = fit_intercept
         self._iter          = iter
         self._l2            = l2
@@ -203,6 +203,7 @@ class MyLogisticRegression:
         self._name          = name
         self._eps           = eps
         self._batch_size    = batch_size
+        self._method        = method
         return
 
     def fit_test(self, X_train, y_train, X_test, y_test):
@@ -215,23 +216,19 @@ class MyLogisticRegression:
         
         for x in X_train[:]:
             hessian = hessian + 1/(4*X_train.shape[0])  * np.outer(x, x)
-        L = np.linalg.norm(hessian, 2)
+        L = self._batch_size * np.linalg.norm(hessian, 2)
 
         lr_func = lambda w: 1.0/ L
         grad_function = self.__choose_gradient(self._l2)
         to_seconds = lambda t: t.microseconds * 1e-6 + t.seconds
         error_criterion = lambda x, y, w: np.linalg.norm(grad_function(x, y, w), 2)
-        
-        
         opt = self.choose_opt_method()
-        self._iter       = iter
+        
         self._errors     = []
         self._accuracies = []
         self._w          = w0
         self._time       = []
-        
         time_start = dt.now()
-
         num_batches = X_train.shape[0] // self._batch_size
         
         
@@ -240,12 +237,6 @@ class MyLogisticRegression:
                 X_batch = X_train[j * self._batch_size: (j + 1) * self._batch_size, :]
                 y_batch = y_train[j * self._batch_size: (j + 1) * self._batch_size]
             
-                hessian = np.zeros((X_train.shape[1], X_train.shape[1]))
-        
-            for x in X_train[:]:
-                hessian = hessian + 1/(4*X_train.shape[0])  * np.outer(x, x)
-                L = np.linalg.norm(hessian, 2)
-                
                 self._w = opt(self.__function, grad_function, self._w,
                                                 lr_func, error_criterion, 
                                                 X_batch, y_batch)
@@ -265,44 +256,6 @@ class MyLogisticRegression:
         return self
 
     def __gradient_descent(self, f, grad_f, w0, 
-                         lr, iter, error_criterion, 
-                         X, y):
-        """
-        Это градиентный спуск.
-        Он получает на вход целевую функцию, функцию градиента целевой функции, 
-        начальную точку, функцию learning rate, количество итераций и 
-        функцию подсчета ошибки. И применяетметод градиентного спуска.
-
-        Inputs:
-        - f                 : целевая функция, минимум которой мы хотим найти.
-        - grad_f            : функция градиента целевой функции.
-        - x0                : начальная точка.
-        - lr                : функция learning rate.
-        - iter              : количество итераций.
-        - error_criterion   : функция подсчета ошибки
-        - X_train           : множество объектов (матрица фичей)
-        - y                 : вектор ответов
-        - eps               : величина ошибки, до которой будем сходится
-
-        Returns:
-        Наилучшую минимальную точку, которую удалось найти.
-        """
-    
-        w = w0
-        prev_w = w
-        for k in range(iter):
-            w = w - lr(X, y, w) * grad_f(X, y, w)
-            
-            if (k % 30 == 0):
-                error = error_criterion(X, y, w, prev_w)
-                if (error < self._eps):
-                    return w
-            
-            prev_w = w
-            
-        return w
-    
-    def __stochastic_gradient_descent(self, f, grad_f, w0, 
                          lr, error_criterion, 
                          X, y):
         """
@@ -339,16 +292,158 @@ class MyLogisticRegression:
             prev_w = w
             
         return w
+    def __SAGA(self, f, grad_f, w0, 
+              lr, error_criterion, 
+              X, y):
+        """
+        Это метод оптимизации SAGA.
+
+        Inputs:
+        - f                 : целевая функция, минимум которой мы хотим найти.
+        - grad_f            : функция градиента целевой функции.
+        - x0                : начальная точка.
+        - lr                : функция learning rate.
+        - error_criterion   : функция подсчета ошибки
+        - X_train           : множество объектов (матрица фичей)
+        - y                 : вектор ответов
+        - eps               : величина ошибки, до которой будем сходится
+
+        Returns:
+        Наилучшую минимальную точку, которую удалось найти.
+        """
+
+        gradients = [1/X.shape[0] * y[i] * X[i] /(1 + np.exp(y[i] * w * X[i])) for i in range(len(y))]
+        gradient = gradients.sum(axis=1)
+
+        w = w0
+        for k in range(iter):
+            for i in range(len(gradients)):
+                new_grad_i = 1/X.shape[0] * y[i] * X[i] /(1 + np.exp(y[i] * w * X[i]))
+                gradient = gradient - gradients[i] + new_grad_i
+                gradients[i]  = new_grad_i
+                w = w - lr(X, y, w) * grad_f(X, y, w)
+            
+            if (k % 30 == 0):
+                error = error_criterion(X, y, w)
+                if (error < self._eps):
+                    return w
+        return w
+    
+    def __SVRG(self, f, grad_f, w0, 
+              lr, error_criterion, 
+              X, y):
+        """
+        Это метод оптимизации SVRG.
+
+        Inputs:
+        - f                 : целевая функция, минимум которой мы хотим найти.
+        - grad_f            : функция градиента целевой функции.
+        - x0                : начальная точка.
+        - lr                : функция learning rate.
+        - error_criterion   : функция подсчета ошибки
+        - X_train           : множество объектов (матрица фичей)
+        - y                 : вектор ответов
+        - eps               : величина ошибки, до которой будем сходится
+
+        Returns:
+        Наилучшую минимальную точку, которую удалось найти.
+        """
+
+        w = w0
+        phi = w0
+        
+        for k in range(iter):
+            all_w = [w]
+            grad = grad_f(X, y, w)
+            for i in range(self._batch_size):
+                new_grad_i = 1/X.shape[0] * y[i] * X[i] /(1 + np.exp(y[i] * w * X[i]))
+                
+                grad_i = 1/X.shape[0] * y[i] * X[i] /(1 + np.exp(y[i] * phi * X[i]))
+                
+                gradient = new_grad_i - grad_i + grad
+                
+                w = w - lr(X, y, w) * gradient
+                all_w.append(w)
+            
+            phi = 1/self._batch_size * [sum(i) for i in zip(*all_w)]
+            
+            if (k % 30 == 0):
+                error = error_criterion(X, y, w)
+                if (error < self._eps):
+                    return w
+        return w
+    
+    def __SARAH(self, f, grad_f, w0, 
+              lr, error_criterion, X, y):
+        """
+        Это метод оптимизации SARAH.
+
+        Inputs:
+        - f                 : целевая функция, минимум которой мы хотим найти.
+        - grad_f            : функция градиента целевой функции.
+        - x0                : начальная точка.
+        - lr                : функция learning rate.
+        - error_criterion   : функция подсчета ошибки
+        - X_train           : множество объектов (матрица фичей)
+        - y                 : вектор ответов
+        - eps               : величина ошибки, до которой будем сходится
+
+        Returns:
+        Наилучшую минимальную точку, которую удалось найти.
+        """
+
+        w = w0
+        w_prew = w0
+        for k in range(iter):
+            all_w = [w_prew]
+            v0 = grad_f(X, y, all_w[0])
+            all_w.append(all_w[0] - lr(X, y, w) * v0)
+            
+            for i in range(1, self._batch_size):
+                v_it = 1/X.shape[0] * y[i] * X[i] /(1 + np.exp(y[i] * all_w[i] * X[i]))
+                v_it_prev = 1/X.shape[0] * y[i] * X[i] /(1 + np.exp(y[i] * all_w[i-1] * X[i]))
+                v_t = v_t + v_it - v_it_prev
+                all_w.append(all_w[-1] - lr(X, y, w) * v_t)
+            
+            w_prew = all_w[np.random.randint(0, self._batch_size - 1)]
+            if (k % 30 == 0):
+                error = error_criterion(X, y, w)
+                if (error < self._eps):
+                    return w
+        return w
+    
+    def __stochastic_gradient_descent(self, f, grad_f, w0, 
+                         lr, error_criterion, X, y):
+        """
+        Это стохастичский градиентный спуск.
+
+        Inputs:
+        - f                 : целевая функция, минимум которой мы хотим найти.
+        - grad_f            : функция градиента целевой функции.
+        - x0                : начальная точка.
+        - lr                : функция learning rate.
+        - error_criterion   : функция подсчета ошибки
+        - X_train           : множество объектов (матрица фичей)
+        - y                 : вектор ответов
+
+        Returns:
+        Наилучшую минимальную точку, которую удалось найти.
+        """
+    
+        w = w0
+        for k in range(self._iter):
+            xi = 10 * np.random.randn(w.shape[0], self._batch_size)
+
+            xi = xi.sum(axis=1) * 1/self._batch_size
+            w = w - lr(w) * (grad_f(X, y, w) + xi)
+            
+            if (k % 30 == 0):
+                error = self._error_criterion(w)
+                if (error < self._eps):
+                    return w
+        return w
 
     def __function(self, x, y, w):
-        """
-        Целевая фукнция, которую минимизирует наша логистическая регрессия.
-
-        Input: 
-        - X   : матрица фичей
-        - y   : вектор ответов
-        - w   : параметры модели
-        """
         sum = 0
         n = x.shape[0]
 
@@ -393,32 +488,23 @@ class MyLogisticRegression:
     def get_name(self): return self._name
     
     def choose_opt_method(self):
+        if self._method == "SGD":
+            return self.__stochastic_gradient_descent
+        if self._method == "SAGA":
+            return self.__SAGA
+        if self._method == "SVRG":
+            return self.__SVRG
+        if self._method == "SVRG":
+            return self.__SARAH
+    
         return self.__gradient_descent
-        def predict(self, X):
-        """
-        Функция предсказания по признакам, уже натренированной модели.
-        Input: 
-        - X : объекты, по которым будем предксазывать
-
-        Returns: предсказания на основе весов, ранее обученной линейной модели.
-        """        
+    
+    def predict(self, X):
         y_pred = self.prob(X)
         y_pred[y_pred >= 0.5] = 1
         y_pred[y_pred < 0.5] = -1
-        
-        '''
-        for i in range(len(y_pred)):
-            y_pred[y_pred >= 0.5] = 1
-            y_pred[y_pred < 0.5] = -1
-            if (y_pred[i] >= 0.5):
-                y_pred[i] = 1
-            else:
-                y_pred[i] = -1
-        '''
-        #y_pred = np.sign(self._w @ X_train.T)
 
         return y_pred
-    
 
     def calc_accuracy(self, X, y):
         count = 0
