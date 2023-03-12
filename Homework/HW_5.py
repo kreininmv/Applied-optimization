@@ -194,7 +194,7 @@ class MyLinearRegression:
 #######################################################################################################
 class MyLogisticRegression:
     def __init__(self, fit_intercept=False,  iter = 10 ** (6-3), l2 = False, step=1000, 
-        l2_coef = 1, name='default', eps = 5*10e-3, batch_size = 10, method = "GD"):
+        l2_coef = 1, name='default', eps = 5*10e-1, batch_size = 10, method = "GD"):
         self.fit_intercept  = fit_intercept
         self._iter          = iter
         self._l2            = l2
@@ -246,9 +246,9 @@ class MyLogisticRegression:
     
                 self._time.append(to_seconds(dt.now() - time_start))
                 self._errors.append(error) 
-                self._accuracies.append(accuracy_score(y_batch, self.predict(X_batch)))
+                self._accuracies.append(accuracy_score(y_test, self.predict(X_test)))
                 
-                #print("%d: %f" %(i, error))
+                print(f"{j + k*num_batches}: error({error}), accuracy({self._accuracies[-1]})")
                 
                 if (error < self._eps):
                     break
@@ -281,11 +281,11 @@ class MyLogisticRegression:
     
         w = w0
         prev_w = w
-        for k in range(iter):
-            w = w - lr(X, y, w) * grad_f(X, y, w)
+        for k in range(self._iter):
+            w = w - lr(w) * grad_f(X, y, w)
             
             if (k % 30 == 0):
-                error = error_criterion(X, y, w, prev_w)
+                error = error_criterion(X, y, w)
                 if (error < self._eps):
                     return w
             
@@ -311,17 +311,18 @@ class MyLogisticRegression:
         Returns:
         Наилучшую минимальную точку, которую удалось найти.
         """
-
-        gradients = [1/X.shape[0] * y[i] * X[i] /(1 + np.exp(y[i] * w * X[i])) for i in range(len(y))]
-        gradient = gradients.sum(axis=1)
-
+        
         w = w0
-        for k in range(iter):
+        gradients = [1/X.shape[0] * y[i] * X[i] /(1 + np.exp(y[i] * w * X[i])) for i in range(len(y))]
+        gradient = [sum(i) for i in zip(*gradients)]
+
+        for k in range(self._iter):
+            
             for i in range(len(gradients)):
                 new_grad_i = 1/X.shape[0] * y[i] * X[i] /(1 + np.exp(y[i] * w * X[i]))
                 gradient = gradient - gradients[i] + new_grad_i
                 gradients[i]  = new_grad_i
-                w = w - lr(X, y, w) * grad_f(X, y, w)
+                w = w - lr(w) * grad_f(X, y, w)
             
             if (k % 30 == 0):
                 error = error_criterion(X, y, w)
@@ -352,7 +353,7 @@ class MyLogisticRegression:
         w = w0
         phi = w0
         
-        for k in range(iter):
+        for k in range(self._iter):
             all_w = [w]
             grad = grad_f(X, y, w)
             for i in range(self._batch_size):
@@ -362,10 +363,10 @@ class MyLogisticRegression:
                 
                 gradient = new_grad_i - grad_i + grad
                 
-                w = w - lr(X, y, w) * gradient
+                w = w - lr(w) * gradient
                 all_w.append(w)
             
-            phi = 1/self._batch_size * [sum(i) for i in zip(*all_w)]
+            phi = [1/self._batch_size *sum(i) for i in zip(*all_w)]
             
             if (k % 30 == 0):
                 error = error_criterion(X, y, w)
@@ -394,16 +395,15 @@ class MyLogisticRegression:
 
         w = w0
         w_prew = w0
-        for k in range(iter):
+        for k in range(self._iter):
             all_w = [w_prew]
-            v0 = grad_f(X, y, all_w[0])
-            all_w.append(all_w[0] - lr(X, y, w) * v0)
-            
+            v_t = grad_f(X, y, all_w[0])
+            all_w.append(all_w[0] - lr(w) * v_t)
             for i in range(1, self._batch_size):
                 v_it = 1/X.shape[0] * y[i] * X[i] /(1 + np.exp(y[i] * all_w[i] * X[i]))
                 v_it_prev = 1/X.shape[0] * y[i] * X[i] /(1 + np.exp(y[i] * all_w[i-1] * X[i]))
                 v_t = v_t + v_it - v_it_prev
-                all_w.append(all_w[-1] - lr(X, y, w) * v_t)
+                all_w.append(all_w[-1] - lr(w) * v_t)
             
             w_prew = all_w[np.random.randint(0, self._batch_size - 1)]
 
@@ -433,13 +433,13 @@ class MyLogisticRegression:
     
         w = w0
         for k in range(self._iter):
-            xi = 10 * np.random.randn(w.shape[0], self._batch_size)
+            xi = 0.1 * np.random.randn(w.shape[0], self._batch_size)
 
             xi = xi.sum(axis=1) * 1/self._batch_size
             w = w - lr(w) * (grad_f(X, y, w) + xi)
             
             if (k % 30 == 0):
-                error = self._error_criterion(w)
+                error = error_criterion(X, y, w)
                 if (error < self._eps):
                     return w
         return w
@@ -488,6 +488,8 @@ class MyLogisticRegression:
     
     def get_name(self): return self._name
     
+    def get_step(self): return self._step
+
     def choose_opt_method(self):
         if self._method == "SGD":
             return self.__stochastic_gradient_descent
