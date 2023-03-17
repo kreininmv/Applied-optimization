@@ -329,7 +329,7 @@ class MyLogisticRegression:
         sum = np.zeros(w.shape)
         n = X.shape[0]
         for i in range(len(Y)):            
-            sum = sum  - 1/n * Y[i] * X[i] /(1 + np.exp(Y[i] * w * X[i]))
+            sum = sum  - 1/n * Y[i] * X[i] /(1 + np.exp(Y[i] * w * X[i])) * np.exp(Y[i] * w * X[i])
 
         return sum
 
