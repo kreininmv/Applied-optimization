@@ -223,8 +223,9 @@ class MyLinearRegression:
 ################################         My logistic regression        ################################
 #######################################################################################################
 class MyLogisticRegression:
-    def __init__(self, fit_intercept=False,  iter = 10, l2 = False, step=50, 
-        l2_coef = 1, name='default', eps = 0.25, batch_size = 200, sigma=10, method = "GD", test=False):
+    def __init__(self, fit_intercept=False,  iter=10, l2=False, step=50, 
+        l2_coef=1, name='default', eps=0.25, batch_size=200, method = "GD", 
+        test=False, beta1 = 0.999, beta2=0.9, reg2 = 0.05):
         self.fit_intercept  = fit_intercept
         self._iter          = iter
         self._l2            = l2
@@ -235,7 +236,9 @@ class MyLogisticRegression:
         self._batch_size    = batch_size
         self._method        = method
         self._test          = test
-        self._sigma         = sigma
+        self._beta1         = beta1
+        self._beta2         = beta2
+        self._reg2          = reg2
         return
 
     def fit_test(self, X_train, y_train, X_test, y_test):
@@ -245,12 +248,23 @@ class MyLogisticRegression:
         
         # Находим константу липшица для подбора learning rate
         hessian = np.zeros((X_train.shape[1], X_train.shape[1]))
+
+        if self._name == 'GD':
+            for x in X_train[:]:
+                hessian = hessian + 1/(4*X_train.shape[0])  * np.outer(x, x)
+            L = np.linalg.norm(hessian, 2)
+        else:
+            L_max = -1
+            for x in X_train[:]:
+                L = np.linalg.norm(1/4*np.outer(x, x))
+                L_max = max(L, L_max)
+            L = L_max
         
-        for x in X_train[:]:
-            hessian = hessian + 1/(4*X_train.shape[0])  * np.outer(x, x)
-        L = self._batch_size * np.linalg.norm(hessian, 2)
+        print(L)
         
-        
+        #SAGA 1/6L
+        #SVRG 1/6L
+        #SARAH 1/2L
         lr_func = lambda w: 1.0/ L
         grad_function = self.__choose_gradient(self._l2)
         to_seconds = lambda t: t.microseconds * 1e-6 + t.seconds
@@ -265,18 +279,15 @@ class MyLogisticRegression:
         time_start = dt.now()
         num_batches = X_train.shape[0] // self._batch_size
         
-        loop = tqdm(range(int(self._iter)), total=int(self._iter), leave=False)
-
+        
+        '''
         for k in loop:
-            for j in range(num_batches - 1):
-                X_batch = X_train[j*self._batch_size: (j + 1)*self._batch_size, :]
-                y_batch = y_train[j*self._batch_size: (j + 1)*self._batch_size]
-            
-                self._w = opt(self.__function, grad_function, self._w,
-                              lr_func, error_criterion, X_batch, y_batch)
+            generator = self._generate_batches(X_train, y_train, self._batch_size)
+            for j in range(num_batches):
                 
+                X_batch, y_batch = next(generator)
                 error = error_criterion(X_batch, y_batch, self._w)
-    
+                
                 self._time.append(to_seconds(dt.now() - time_start))
                 self._errors.append(error) 
                 self._accuracies.append(accuracy_score(y_test, self.predict(X_test)))
@@ -285,8 +296,46 @@ class MyLogisticRegression:
                     print(f"{j + k*num_batches}: error({error}), accuracy_test({self._accuracies[-1]}), accuracy_batch({accuracy_score(y_batch, self.predict(X_batch))}), accuracy_train({accuracy_score(y_train, self.predict(X_train))})")
 
                 loop.set_description(f"Method({self._name}) Epoch[{k}/{self._iter}], [error=%.4f, acc test=%3.1f, acc batch =%3.1f, acc train=%3.1f]" % (error, 100.*self._accuracies[-1], 100.*accuracy_score(y_batch, self.predict(X_batch)), 100.*accuracy_score(y_train, self.predict(X_train))))
+
+                self._w = opt(self.__function, grad_function, self._w,
+                              lr_func, error_criterion, X_batch, y_batch)
+        '''
+        
+        loop = tqdm(range(int(self._iter)), total=int(self._iter), leave=False)
+        for k in loop:
+        
+            error = error_criterion(X_train, y_train, self._w)
+                
+            self._time.append(to_seconds(dt.now() - time_start))
+            self._errors.append(error) 
+            self._accuracies.append(accuracy_score(y_test, self.predict(X_test)))
+                
+            if (self._test):
+                print(f"{j + k*num_batches}: error({error}), accuracy_test({self._accuracies[-1]}), accuracy_batch({accuracy_score(y_batch, self.predict(X_batch))}), accuracy_train({accuracy_score(y_train, self.predict(X_train))})")
+
+            loop.set_description(f"Method({self._name}) Epoch[{k}/{self._iter}], [error=%.4f, acc test=%3.1f, acc train=%3.1f]" % (error, 100.*self._accuracies[-1], 100.*accuracy_score(y_train, self.predict(X_train))))
+
+            self._w = opt(self.__function, grad_function, self._w,
+                              lr_func, error_criterion, X_batch, y_batch)
+                
                 
         return
+
+    def _generate_batches(self, X, y, batch_size):
+        X = np.array(X)
+        y = np.array(y)
+        perm = np.random.permutation(len(X))
+        perm = perm[:((len(X) // batch_size) * batch_size)]
+        X_batch = []
+        y_batch = []
+
+        for batch_start in np.hsplit(perm, len(X) // batch_size): 
+            for i in range(len(batch_start)):
+                X_batch.append(X[batch_start[i], :])
+                y_batch.append(y[batch_start[i]])
+            yield (np.array(X_batch), np.array(y_batch))
+            X_batch = []
+            y_batch = []
 
     def __gradient_descent(self, f, grad_f, w0, 
                            lr, error_criterion, X, y):
@@ -304,111 +353,22 @@ class MyLogisticRegression:
                     return w
             
         return w
-    def __SAGA(self, f, grad_f, w0, 
-              lr, error_criterion, X, y):
-        """
-        Метод SAGA.
-        """
-        
-        w = w0
-        #//Создаем лист из градиентов
-        gradients = [-1/(X.shape[0]) * y[i] * X[i] /(1 + np.exp(-y[i] * w * X[i])) for i in range(len(y))]
-        gradient = [sum(i) for i in zip(*gradients)]
-
-        for k in range(self._step):
-            
-            for j in range(0, X.shape[0]):
-                i = np.random.randint(X.shape[0])
-                new_grad_i = -1/X.shape[0] * y[i] * X[i] /(1 + np.exp(-y[i] * w * X[i]))
-                gradient = gradient - gradients[i] + new_grad_i + self._l2_coef * w
-                gradients[i]  = new_grad_i
-                w = w - lr(w) * gradient
-            
-            if (k % 30 == 0):
-                error = error_criterion(X, y, w)
-                if (error < self._eps):
-                    return w
-        return w
     
-    def __SVRG(self, f, grad_f, w0, 
-               lr, error_criterion, X, y):
-        """
-        Это метод оптимизации SVRG.
-        """
-
-        w = w0
-        phi = w0
-        
-        for k in range(self._step):
-            all_w = [w]
-            grad = grad_f(X, y, w)
-            
-            for j in range(0, X.shape[0]):
-                i = np.random.randint(X.shape[0])
-                new_grad_i = -1/X.shape[0]*y[i]*X[i]*np.exp(-y[i] * w * X[i])/(1 + np.exp(-y[i] * w * X[i]))
-                grad_i = -1/X.shape[0]*y[i]*X[i]*np.exp(-y[i] * w * X[i])/(1 + np.exp(-y[i] * phi * X[i]))
-                
-                gradient = new_grad_i - grad_i + grad + self._l2_coef * w
-                
-                w = w - lr(w) * gradient
-                all_w.append(w)
-            
-            phi = np.array([sum(i)*1./len(all_w) for i in zip(*all_w)])
-            all_w.clear()
-
-            if (k % 30 == 0):
-                error = error_criterion(X, y, w)
-                if (error < self._eps):
-                    return w
-        return w
-    
-    def __SARAH(self, f, grad_f, w0, 
+    def adamW(self, f, grad_f, w0, 
                 lr, error_criterion, X, y):
         """
-        Метод SARAH.
+        ADAMW
         """
 
         w = w0
-        
+        g_k = grad_f(X, y, w)
+        d_k = g_k ** 2
         for k in range(self._step):
-            all_w = [w]
-            prew_w = all_w[-1] 
-            v_t = grad_f(X, y, all_w[0])
-            all_w.append(prew_w - lr(w) * v_t)
-            
-            for j in range(0, X.shape[0]):
-                i = np.random.randint(X.shape[0])
-                v_it = -1/X.shape[0] * y[i] * X[i] * np.exp(-y[i] * all_w[-1] * X[i]) \
-                /( 1 + np.exp(-y[i] * all_w[-1] * X[i]))
-                v_it_prev = -1/X.shape[0] * y[i] * X[i] * np.exp(-y[i] * prew_w * X[i]) \
-                / (1 + np.exp(-y[i] * prew_w * X[i]))
-                
-                v_t = v_t + v_it - v_it_prev + self._l2_coef*all_w[-1]
-                
-                prew_w =all_w[-1] 
-                all_w.append(prew_w - lr(w) * v_t)
-                
-            
-            w  = all_w[np.random.randint(0, len(all_w))]
-            all_w.clear()
-            
-            if (k % 30 == 0):
-                error = error_criterion(X, y, w)
-                if (error < self._eps):
-                    return w
-        return w
-    
-    def __stochastic_gradient_descent(self, f, grad_f, w0, lr, error_criterion, X, y):
-        """
-        Стохастичский градиентный спуск.
-        """
-    
-        w = w0
-        for k in range(self._step):
-
-            vec = np.ones_like(w)
-            xi = self._sigma / self._batch_size * np.random.randn(self._batch_size).sum()
-            w = w - lr(w) * (grad_f(X, y, w) +  xi* vec)
+            g_k = self._beta1 * g_k + (1-self._beta1) * grad_f(X, y, w)
+            d_k = self._beta2 * d_k + (1-self._beta2) * (g_k ** 2)
+            bias_g_k = g_k / (1 - self._beta1 ** k)
+            bias_d_k = d_k / (1 - self._beta2 ** k)
+            w = w * (1 - lr(w) * self._reg2) - lr(w) * bias_g_k / bias_d_k 
             
             if (k % 30 == 0):
                 error = error_criterion(X, y, w)
