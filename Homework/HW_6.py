@@ -249,7 +249,7 @@ class MyLinearRegression:
                     h[j] = self._X_train[j] @ w - self._b[j]
                 w = w - lr(w, self._i) * h
             
-            self._append_errors(w, self._b, time_start)
+            self._append_errors(w, time_start)
             if (self._errors[-1] < self._eps):
                 return w
 
@@ -319,7 +319,7 @@ class Mushrooms:
         if self._lr_func is None:
             hessian = 2 / n * X_train.T @ X_train
             wb, vb = np.linalg.eigh(hessian)
-            self._lr_func = lambda w: 1/wb[-1]
+            self._lr_func = lambda w, x: 1/wb[-1]
         
         self._error_criterion = lambda X, y, w, n: np.linalg.norm(self.__grad_function(X, y, w, n), 2)
         self._grad_function = lambda w: 2/n * X_train.T @ (X_train @ w - y)
@@ -356,8 +356,7 @@ class Mushrooms:
         n = self._X_train.shape[0]
         for k in range(self._iter):
             self._i += 1
-            self._w = self._w - lr(0) * self.__grad_function(self._X_train, self._y_train, self._w, n)
-            #w = w - lr(w) * 2/n * (self._X_train.T @ self._X_train @ w - self._X_train.T @ self._y_train) - lr(w) * self._l2_coef * w
+            self._w = self._w - lr(0, self._i) * self.__grad_function(self._X_train, self._y_train, self._w, n)
 
             self._append_errors(self._w, time_start)
             
@@ -377,7 +376,7 @@ class Mushrooms:
                 j = np.random.randint(len(self._w))
                 self._i += 1
                 grad_j = 2/self._X_train.shape[0] * self._X_train.T[j, :] @ (self._X_train @ self._w - self._y_train)
-                self._w[j] = (1-self._l2_coef*lr(self._w))*self._w[j] - lr(self._w) * grad_j
+                self._w[j] = (1-self._l2_coef*lr(self._w, self._i))*self._w[j] - lr(self._w, self._i) * grad_j
             
             self._append_errors(self._w, time_start)
             if (self._errors[-1] < self._eps):
@@ -392,12 +391,11 @@ class Mushrooms:
         h = grad_f(self._w)
 
         for k in range(self._iter):
-            for r in range(len(self._w)):
-                j = np.random.randint(len(self._w))
-                self._i += 1
+            self._i += 1
+            for j in random.sample(range(len(self._w)), self._batch_size):
                 h[j] = 2/self._X_train.shape[0] * self._X_train.T[j, :] @ (self._X_train @ self._w - self._y_train)
-                
-                self._w = (1-self._l2_coef*lr(self._w))*self._w - lr(self._w) * h
+            
+            self._w = (1-self._l2_coef*lr(self._w, self._i))*self._w - lr(self._w, self._i) * h
             
             self._append_errors(self._w, time_start)
             if (self._errors[-1] < self._eps):
