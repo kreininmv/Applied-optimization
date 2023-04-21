@@ -204,7 +204,7 @@ class MyLinearRegression:
 ################################         My logistic regression        ################################
 #######################################################################################################
 class MyLogisticRegression:
-    def __init__(self, fit_intercept=False, eps=5*1e-3,     iter =10 ** 3, batch=False, batch_size=50, decreasing_lr=False, name="GD", lr_func = None, label="None", dependent=False, l2_coef=0, betas = [0.999, 0.99]):
+    def __init__(self, fit_intercept=False, eps=5*1e-3, iter =10 ** 3, batch=False, batch_size=50, decreasing_lr=False, name="GD", lr_func = None, label="None", dependent=False, l2_coef=0, betas = [0.999, 0.99]):
         self.fit_intercept = fit_intercept
         self._iter         = iter
         self._batch        = batch
@@ -295,7 +295,6 @@ class MyLogisticRegression:
         time_start = dt.now()
         self._w = w0
         for k in range(self._iter):
-
             self._i += 1
             self._w = self._w - lr(0) * grad_f(self._w)
             self._append_errors(self._w, time_start)
@@ -305,21 +304,52 @@ class MyLogisticRegression:
             
         return self._w
     
+    def _get_batch(self, j):
+        if j == self._n_batches - 1:
+            X = self._X_train[j*self._batch_size : ]
+            y= self._y_train[j*self._batch_size : ]
+        else:
+            X = self._X_train[j*self._batch_size : (j + 1) * self._batch_size]
+            y = self._y_train[j*self._batch_size : (j + 1) * self._batch_size]
+        return X, y
+    
     def __SGD(self, f, grad_f, w0, lr):
         time_start = dt.now()
         self._w = w0
-        generator = self._generate_batches(self._X_train, self._y_train, self._batch_size)
         
+        self._n_batches = self._X_train.shape[0] // self._batch_size
+        generator = self._generate_batches(self._X_train, self._y_train, self._batch_size)
+
         for k in range(self._iter):
             X, y = next(generator)
+
             self._i += 1
             self._w = self._w - lr(0) * self.__grad_function_part(self._w, X, y)
             self._append_errors(self._w, time_start)
             
             if (self._errors[-1] < self._eps):
                 return self._w
-            
         return self._w
+    
+    def __SAGA(self, f, grad_f, w0, lr):
+        time_start = dt.now()
+        self._w = w0
+        generator = self._generate_batches(self._X_train, self._y_train, self._batch_size)
+        
+        n_batches = self._X_train.shape[0] // self._batch_size
+        sum = np.zeros_like(w0)
+        phi = np.zeros((n_batches, len(w0)))
+
+        for _ in range(n_batches):
+            X, y = next(generator)
+            phi[j] = self.__grad_function_part(self._w, X, y)
+            sum += phi[j]
+
+        for _ in range(self._iter):
+            X, y = next(generator)
+            self._i += 1
+            j = np.random.randint()
+
 
     
     def _generate_batches(self, X, y, batch_size):
@@ -338,7 +368,7 @@ class MyLogisticRegression:
                 yield (np.array(X_batch), np.array(y_batch))
                 X_batch = []
                 y_batch = []
-    
+
     def predict(self, X):
         return X @ self._w
 
