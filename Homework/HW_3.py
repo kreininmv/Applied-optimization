@@ -599,3 +599,62 @@ class MyLinearRegression:
         Return: лист accuracy_score.
         """
         return self._accuracies
+    
+
+from datetime import datetime as dt
+from sklearn.metrics import accuracy_score
+class Optimizer:
+    def __init__(self, func, grad_func, w0, learning_rate, iter, args, name, label):
+        self.func = func
+        self.grad_func = grad_func
+        self.w = w0
+        self.iter = iter
+        self.learning_rate = learning_rate
+        self.args = args
+        self.name = name
+        self.label = label
+        self.errors = []
+        self.accuracy = []
+        self.time = []
+        self.v = self.grad_func(self.w, self.args)
+        self.args['w_prev'] = self.w
+
+    def gd(self, w, k):
+        lr = self.learning_rate(w, self.func, self.grad_func, self.args)
+        return w - lr * self.grad_func(w, self.args) 
+    
+    def heavy_ball(self, w, v, k):
+        v = self.args['beta']*v + (1 - self.args['beta'])*self.grad_func(w, self.args)
+        lr = self.learning_rate(w, self.func, self.grad_func, self.args)
+        return w - lr*v, v
+    
+    def nesterov(self, w, v, k):
+        lr = self.learning_rate(w, self.func, self.grad_func, self.args)
+        beta = self.args['beta']
+        v = beta*v + (1-beta)*self.grad_func(w - lr*beta*v, self.args)
+        return w - lr*v, v
+
+    def predict(self, X):
+        return np.sign(X @ self.w)
+
+    def fit(self):
+        to_seconds = lambda s: s.microseconds * 1e-6 + s.seconds
+        time_start = dt.now()
+        for k in range(self.iter):
+            w_prew = self.w
+            if self.name == 'gd':
+                self.w = self.gd(self.w, k)
+            elif self.name == 'gdhv':
+                self.w, self.v = self.heavy_ball(self.w, self.v, k)
+            elif self.name == 'gdnesterov':
+                self.w, self.v = self.nesterov(self.w, self.v, k)
+
+            self.args['w_prev'] = w_prew
+            error = np.linalg.norm(self.grad_func(self.w, self.args), 2)
+            self.time.append(to_seconds(dt.now() - time_start))
+            self.errors.append(error)
+            self.accuracy.append(accuracy_score(self.predict(self.args['X_test']), self.args['y_test']))
+            
+            if error < 1e-8:
+                break
+

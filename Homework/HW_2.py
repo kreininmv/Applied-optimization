@@ -285,3 +285,42 @@ class MyLinearRegression:
                 return w
         return w
 
+
+from datetime import datetime as dt
+from sklearn.metrics import accuracy_score
+class Optimizer:
+    def __init__(self, func, grad_func, w0, learning_rate, iter, args, name, label):
+        self.func = func
+        self.grad_func = grad_func
+        self.w = w0
+        self.iter = iter
+        self.learning_rate = learning_rate
+        self.args = args
+        self.name = name
+        self.label = label
+
+    def gd(self, w, k):
+        return w - self.learning_rate(w, self.args) * self.grad_func(w, self.args) 
+    
+    def predict(self, X):
+        return np.sign(X @ self.w)
+
+    def fit(self):
+        self.errors = []
+        self.accuracy = []
+        self.time = []
+        time_start = dt.now()
+        to_seconds = lambda s: s.microseconds * 1e-6 + s.seconds
+
+        for k in range(self.iter):
+            if self.name == 'gd':
+                self.w = self.gd(self.w, k)
+            
+            error = np.linalg.norm(self.grad_func(self.w, self.args), 2)
+            self.time.append(to_seconds(dt.now() - time_start))
+            self.errors.append(error)
+            self.accuracy.append(accuracy_score(self.predict(self.args['X_test']), self.args['y_test']))
+            
+            if error < 1e-8:
+                break
+
