@@ -500,3 +500,122 @@ class MyLogisticRegression:
         y_prob = 1/(1 + np.exp(-X_train @ self._w))
     
         return y_prob
+    
+
+from datetime import datetime as dt
+from sklearn.metrics import accuracy_score
+class Optimizer:
+    def __init__(self, func, grad_func, grad_part_func, w0, learning_rate, iter, args, name, label):
+        self.func = func
+        self.grad_func = grad_func
+        self.w = w0
+        self.iter = iter
+        self.learning_rate = learning_rate
+        self.args = args
+        self.name = name
+        self.label = label
+        self.errors = []
+        self.accuracy = []
+        self.time = []
+        self.n = args['X_train'].shape[0] // args['batch_size']
+        self.phi = np.array([self.w] * self.n)
+        self.grad_part_func = grad_part_func
+        self.g = self.grad_func(self.w, self.args)
+        self.x = np.copy(self.w)
+        self.args['w_prev'] = self.w
+        self.prob = 1e-3
+
+    def gd(self, w, k):
+        lr = self.learning_rate(w, self.func, self.grad_func, self.args)
+        return w - lr * self.grad_func(w, self.args) 
+    
+    def sgd(self, w, k):
+        lr = self.learning_rate(w, self.func, self.grad_func, self.args)
+
+        np.random.seed(k)
+        j = np.random.randint(self.n)
+        return  w - lr * self.grad_part_func(w, j, self.args)
+    
+    def saga(self, w, phi, k):
+        lr = self.learning_rate(w, self.func, self.grad_func, self.args)
+
+        np.random.seed(k)
+        j = np.random.randint(self.n)
+        phi_next = phi
+        phi_next[j] = w
+        g_k = self.grad_part_func(phi_next[j], j, self.args) - \
+              self.grad_part_func(phi[j], j, self.args)
+        sum = 0
+        for i in range(self.n):
+            sum += self.grad_part_func(phi[i], i, self.args)
+        g_k += 1./self.n * sum
+
+        return w - lr*g_k, phi_next
+
+    def svrg(self, x_curr, w_curr, g_curr, k):
+        lr = self.learning_rate(x_curr, self.func, self.grad_func, self.args)
+
+        np.random.seed(k)
+        j = np.random.randint(self.n)
+
+        g_k = self.grad_part_func(x_curr, j, self.args) - self.grad_part_func(w_curr, j, self.args) + g_curr
+
+        x_next = x_curr - lr * g_k
+
+        prob = np.random.random()
+        if self.prob >= prob:
+            w_next = x_next
+            g_next = self.grad_func(x_next, self.args)
+        else:
+            w_next = w_curr
+            g_next = g_curr
+
+        return x_next, w_next, g_next
+    
+    def sarah(self, x_curr, x_before, g_curr, k):
+        lr = self.learning_rate(x_curr, self.func, self.grad_func, self.args)
+
+        np.random.seed(k)
+        j = np.random.randint(self.n)
+
+        prob = np.random.random()
+        if self.prob >= prob:
+            g_next = self.grad_part_func(x_curr, j, self.args) \
+                     - self.grad_part_func(x_before, j, self.args) + g_curr
+        else:
+            g_next = self.grad_func(x_curr, self.args)
+
+        x_next = x_curr - lr * g_next
+
+        return x_next, g_next
+
+    def predict(self, X):
+        return np.sign(X @ self.w)
+
+    def fit(self):
+        to_seconds = lambda s: s.microseconds * 1e-6 + s.seconds
+        time_start = dt.now()
+        for k in range(self.iter):
+            w_prew = self.w
+            if self.name == 'gd':
+                self.w = self.gd(self.w, k)
+            elif self.name == 'sgd':
+                self.w = self.sgd(self.w, k)
+            elif self.name == 'saga':
+                self.w, self.phi = self.saga(self.w, self.phi, k)
+            elif self.name == 'svrg':
+                self.w, self.x, self.g = self.svrg(self.w, self.x, self.g, k)
+            elif self.name == 'sarah':
+                self.w, self.g = self.sarah(self.w, self.args['w_prev'], self.g, k)
+
+
+
+            self.args['w_prev'] = w_prew
+            error = np.linalg.norm(self.grad_func(self.w, self.args), 2)
+            self.time.append(to_seconds(dt.now() - time_start))
+            self.errors.append(error)
+            self.accuracy.append(accuracy_score(self.predict(self.args['X_test']), self.args['y_test']))
+            
+            if error < 1e-8:
+                break
+
